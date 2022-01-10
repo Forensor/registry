@@ -19,7 +19,7 @@ newtype License = License String
 derive newtype instance eqLicense :: Eq License
 
 instance decodeJsonSPDXLicense :: DecodeJson License where
-  decodeJson = lmap TypeMismatch <<< parse <=< decodeJson
+  decodeJson = lmap (TypeMismatch <<< _.identifier) <<< parse <=< decodeJson
 
 instance encodeJsonSPDXLicense :: EncodeJson License where
   encodeJson = encodeJson <<< print
@@ -31,6 +31,10 @@ instance Show License where
 print :: License -> String
 print (License license) = license
 
+type SPDXParseError = { identifier :: String, error :: String }
+
+foreign import parseSPDXLicenseIdImpl :: forall r. Fn3 (SPDXParseError -> r) (String -> r) String r
+
 -- | Parse a string as a SPDX license identifier.
 -- |
 -- | ```purs
@@ -40,7 +44,7 @@ print (License license) = license
 -- | > parse 'MITT'
 -- | Left "Invalid SPDX identifier: MITT. Did you mean MIT?"
 -- | ```
-parse :: String -> Either String License
+parse :: String -> Either SPDXParseError License
 parse = runFn3 parseSPDXLicenseIdImpl Left (Right <<< License)
 
 data SPDXConjunction = And | Or
@@ -50,4 +54,3 @@ joinWith = case _ of
   And -> coerce <<< String.joinWith " AND " <<< coerce
   Or -> coerce <<< String.joinWith " OR " <<< coerce
 
-foreign import parseSPDXLicenseIdImpl :: forall r. Fn3 (String -> r) (String -> r) String r

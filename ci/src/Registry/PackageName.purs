@@ -2,6 +2,7 @@ module Registry.PackageName
   ( PackageName
   , parse
   , print
+  , parser
   ) where
 
 import Registry.Prelude
@@ -37,15 +38,16 @@ print :: PackageName -> String
 print (PackageName package) = package
 
 parse :: String -> Either Parser.ParseError PackageName
-parse = Parser.runParser do
+parse = Parser.runParser parser
+
+parser :: Parser.Parser PackageName
+parser = do
   let
     -- Error messages which also define our rules for package names
     endErr = "Package name should end with a lower case char or digit"
     charErr = "Package name can contain lower case chars, digits and non-consecutive dashes"
     startErr = "Package name should start with a lower case char or a digit"
     manyDashesErr = "Package names cannot contain consecutive dashes"
-
-  let
     char = ParseC.choice [ Parse.lowerCaseChar, Parse.anyDigit ] <?> charErr
     dash = void $ Parse.char '-'
     chunk = ParseC.many1 char
