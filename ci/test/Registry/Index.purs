@@ -8,7 +8,6 @@ import Data.Foldable (sequence_)
 import Data.Map as Map
 import Data.Set as Set
 import Effect.Ref as Ref
-import Foreign.Object as Object
 import Foreign.SemVer (Range)
 import Foreign.Tmp as Tmp
 import Node.FS.Stats as Stats
@@ -105,7 +104,7 @@ isSorted :: Array Manifest -> Boolean
 isSorted = fst <<< Array.foldl foldFn (Tuple true Set.empty)
   where
   getDeps :: Manifest -> Array PackageName
-  getDeps = map unsafeParsePackageName <<< Object.keys <<< unsafeGetLibDependencies
+  getDeps = map unsafeParsePackageName <<< Set.toUnfoldable <<< Map.keys <<< unsafeGetLibDependencies
 
   foldFn :: Tuple Boolean (Set PackageName) -> Manifest -> Tuple Boolean (Set PackageName)
   foldFn (Tuple valid visited) manifest@(Manifest { name }) = do
@@ -115,11 +114,11 @@ isSorted = fst <<< Array.foldl foldFn (Tuple true Set.empty)
     else
       Tuple false newSet
 
-  unsafeGetLibDependencies :: Manifest -> Object Range
+  unsafeGetLibDependencies :: Manifest -> Map String Range
   unsafeGetLibDependencies (Manifest manifest) =
     ( fromJust'
         (\_ -> unsafeCrashWith "Manifest has no 'lib' target in 'isSorted'")
-        (Object.lookup "lib" manifest.targets)
+        (Map.lookup "lib" manifest.targets)
     ).dependencies
 
   unsafeParsePackageName :: String -> PackageName

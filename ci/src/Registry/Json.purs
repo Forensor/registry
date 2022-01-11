@@ -14,6 +14,12 @@ module Registry.Json
   , parseJson
   , writeJsonFile
   , readJsonFile
+  , getField
+  , (.:)
+  , getField'
+  , (.:?)
+  , getFieldDefault
+  , (.?=)
   , encode
   , decode
   , decodeWithParser
@@ -22,11 +28,11 @@ module Registry.Json
   , encodeRecord
   , class DecodeRecord
   , decodeRecord
+  , class EncodeRecordField
+  , encodeRecordField
   , class DecodeRecordField
   , decodeRecordField
   ) where
-
-import Registry.Prelude
 
 import Data.Argonaut.Core (Json) as Exports
 import Data.Argonaut.Core as Core
@@ -45,6 +51,7 @@ import Node.FS.Aff as FS
 import Prim.Row as Row
 import Prim.RowList as RL
 import Record as Record
+import Registry.Prelude (class Monoid, class Newtype, class Ord, Aff, Either(..), Encoding(..), FilePath, Map, Maybe(..), NonEmptyArray, Object, Unit, bind, either, fromMaybe, identity, lmap, map, maybe, mempty, note, otherwise, pure, traverse, ($), (<<<), (<=<), (<>), (>=>), (>>>))
 import Text.Parsing.StringParser (Parser)
 import Text.Parsing.StringParser as SP
 import Type.Proxy (Proxy(..))
@@ -72,9 +79,33 @@ decodeWithParser parser json = do
   parsed <- lmap SP.printParserError $ SP.runParser parser string
   pure parsed
 
+-- | Look up and decode a field in an object, failing if it is not there.
+getField :: forall a. RegistryJson a => Object Core.Json -> String -> Either String a
+getField object key = maybe (Left $ "Expected value at key: '" <> key <> "'") decode (Object.lookup key object)
+
+infix 7 getField as .:
+
+-- | Look up and decode a field in an object, returning `Maybe` if it is not there.
+getField' :: forall a. RegistryJson a => Object Core.Json -> String -> Either String (Maybe a)
+getField' object key = maybe (pure Nothing) decode' (Object.lookup key object)
+  where
+  decode' json = if Core.isNull json then pure Nothing else map Just (decode json)
+
+infix 7 getField' as .:?
+
+-- | Look up and decode a field in an object, defaulting if it isn't found
+getFieldDefault :: forall a. Monoid a => RegistryJson a => Object Core.Json -> String -> Either String a
+getFieldDefault object = map (fromMaybe mempty) <<< getField' object
+
+infix 7 getFieldDefault as .?=
+
 class RegistryJson a where
   encode :: a -> Core.Json
   decode :: Core.Json -> Either String a
+
+instance decodeJsonJson :: RegistryJson Core.Json where
+  encode = identity
+  decode = Right
 
 instance RegistryJson Boolean where
   encode = Core.fromBoolean
@@ -105,7 +136,7 @@ instance RegistryJson a => RegistryJson (Maybe a) where
     Nothing -> Core.jsonNull
     Just value -> encode value
   decode json
-    | json == Core.jsonNull = Right Nothing
+    | Core.isNull json = Right Nothing
     | otherwise = map Just $ decode json
 
 instance (RegistryJson e, RegistryJson a) => RegistryJson (Either e a) where
@@ -131,13 +162,13 @@ instance RegistryJson a => RegistryJson (NonEmptyArray a) where
   encode = encode <<< NEA.toArray
   decode = decode >=> NEA.fromArray >>> note "Expected NonEmptyArray"
 
-instance (Ord k, Newtype k String, RegistryJson v) => RegistryJson (Map k v) where
-  encode = encode <<< Object.fromFoldable <<< map (lmap unwrap) <<< (Map.toUnfoldableUnordered :: _ -> Array _)
-  decode = map (Map.fromFoldable <<< map (lmap wrap) <<< (Object.toUnfoldable :: _ -> Array _)) <=< decode
-
-else instance RegistryJson a => RegistryJson (Map String a) where
+instance RegistryJson a => RegistryJson (Map String a) where
   encode = encode <<< Object.fromFoldable <<< (Map.toUnfoldableUnordered :: _ -> Array _)
   decode = map (Map.fromFoldable <<< (Object.toUnfoldable :: _ -> Array _)) <=< decode
+
+else instance (Ord k, Newtype k String, RegistryJson v) => RegistryJson (Map k v) where
+  encode = encode <<< Object.fromFoldable <<< map (lmap unwrap) <<< (Map.toUnfoldableUnordered :: _ -> Array _)
+  decode = map (Map.fromFoldable <<< map (lmap wrap) <<< (Object.toUnfoldable :: _ -> Array _)) <=< decode
 
 instance (EncodeRecord row list, DecodeRecord row list, RL.RowToList row list) => RegistryJson (Record row) where
   encode record = Core.fromObject $ encodeRecord record (Proxy :: Proxy list)
@@ -153,15 +184,15 @@ class EncodeRecord (row :: Row Type) (list :: RL.RowList Type) where
 instance EncodeRecord row RL.Nil where
   encodeRecord _ _ = Object.empty
 
-instance (RegistryJson value, EncodeRecord row tail, IsSymbol field, Row.Cons field value tail' row) => EncodeRecord row (RL.Cons field value tail) where
+instance (EncodeRecordField value, RegistryJson value, EncodeRecord row tail, IsSymbol field, Row.Cons field value tail' row) => EncodeRecord row (RL.Cons field value tail) where
   encodeRecord row _ = do
     let
       _field = Proxy :: Proxy field
       fieldName = Symbol.reflectSymbol _field
-      fieldValue = encode $ Record.get _field row
+      fieldValue = Record.get _field row
       object = encodeRecord row (Proxy :: Proxy tail)
 
-    Object.insert fieldName fieldValue object
+    encodeRecordField fieldName fieldValue object
 
 class DecodeRecord (row :: Row Type) (list :: RL.RowList Type) | list -> row where
   decodeRecord :: Object Core.Json -> Proxy list -> Either String (Record row)
@@ -183,13 +214,26 @@ instance (DecodeRecordField value, DecodeRecord rowTail tail, IsSymbol field, Ro
         rest <- decodeRecord object (Proxy :: Proxy tail)
         Right $ Record.insert _field val rest
 
+-- This class ensures that `Maybe` values are not included when JSON-encoding
+-- records.
+class EncodeRecordField a where
+  encodeRecordField :: String -> a -> Object Core.Json -> Object Core.Json
+
+instance RegistryJson a => EncodeRecordField (Maybe a) where
+  encodeRecordField key = case _ of
+    Nothing -> identity
+    Just value -> Object.insert key (encode value)
+
+else instance RegistryJson a => EncodeRecordField a where
+  encodeRecordField key value = Object.insert key (encode value)
+
 class DecodeRecordField a where
   decodeRecordField :: Maybe Core.Json -> Maybe (Either String a)
 
 instance RegistryJson a => DecodeRecordField (Maybe a) where
   decodeRecordField = Just <<< case _ of
     Nothing -> Right Nothing
-    Just json | json == Core.jsonNull -> Right Nothing
+    Just json | Core.isNull json -> Right Nothing
     Just json -> decode json
 
 else instance RegistryJson a => DecodeRecordField a where

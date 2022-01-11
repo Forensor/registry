@@ -15,28 +15,27 @@ module Foreign.SemVer
 
 import Registry.Prelude
 
-import Data.Argonaut as Json
 import Data.Function.Uncurried (Fn2, runFn2)
 import Data.String as String
+import Registry.Json (class RegistryJson)
+import Registry.Json as Json
 
 data SemVer
 
-instance eqSemVer :: Eq SemVer where
+instance Eq SemVer where
   eq v1 v2 = compare v1 v2 == EQ
 
-instance ordSemVer :: Ord SemVer where
+instance Ord SemVer where
   compare = compareSemVer
 
-instance showSemVer :: Show SemVer where
+instance Show SemVer where
   show = raw
 
-instance decodeJsonSemver :: Json.DecodeJson SemVer where
-  decodeJson json = do
-    version' <- Json.decodeJson json
-    note (Json.TypeMismatch $ "Expected version: " <> version') (parseSemVer version')
-
-instance encodeJsonSemver :: Json.EncodeJson SemVer where
-  encodeJson = Json.encodeJson <<< version
+instance RegistryJson SemVer where
+  encode = Json.encode <<< version
+  decode json = do
+    version' <- Json.decode json
+    note ("Expected version: " <> version') (parseSemVer version')
 
 foreign import compareSemVerImpl :: Fn2 SemVer SemVer Int
 
@@ -70,13 +69,11 @@ newtype Range = Range String
 
 derive newtype instance eqRange :: Eq Range
 
-instance decodeJsonRange :: Json.DecodeJson Range where
-  decodeJson json = do
-    original <- Json.decodeJson json
-    note (Json.TypeMismatch $ "Expected SemVer range: " <> original) (parseRange original)
-
-instance encodeJsonRange :: Json.EncodeJson Range where
-  encodeJson = Json.encodeJson <<< printRange
+instance RegistryJson Range where
+  encode = Json.encode <<< printRange
+  decode json = do
+    original <- Json.decode json
+    note ("Expected SemVer range: " <> original) (parseRange original)
 
 foreign import parseRangeImpl :: String -> Nullable String
 

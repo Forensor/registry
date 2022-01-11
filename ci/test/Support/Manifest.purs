@@ -1,7 +1,8 @@
 module Test.Support.Manifest where
 
 import Registry.Prelude
-import Foreign.Object as Object
+
+import Data.Map as Map
 import Foreign.SPDX as SPDX
 import Foreign.SemVer as SemVer
 import Partial.Unsafe as Partial.Unsafe
@@ -20,8 +21,8 @@ ab = { name, v1a, v1b, v2 }
   where
   name = unsafeFromJust $ hush $ PackageName.parse "ab"
   version1 = unsafeFromJust $ SemVer.parseSemVer "1.0.0"
-  targets = Object.singleton "lib"
-    { dependencies: Object.empty
+  targets = Map.singleton "lib"
+    { dependencies: Map.empty
     , sources: [ "src/**/*.purs" ]
     }
   version2 = unsafeFromJust $ SemVer.parseSemVer "2.0.0"
@@ -46,13 +47,13 @@ abc = { name, v1, v2 }
   where
   name = unsafeFromJust $ hush $ PackageName.parse "abc"
   version1 = unsafeFromJust $ SemVer.parseSemVer "1.0.0"
-  targets1 = Object.singleton "lib"
-    { dependencies: Object.singleton "ab" (unsafeFromJust (SemVer.parseRange "^1.0.0"))
+  targets1 = Map.singleton "lib"
+    { dependencies: Map.singleton "ab" (unsafeFromJust (SemVer.parseRange "^1.0.0"))
     , sources: [ "src/**/*.purs" ]
     }
   version2 = unsafeFromJust $ SemVer.parseSemVer "2.0.0"
-  targets2 = Object.singleton "lib"
-    { dependencies: Object.singleton "ab" (unsafeFromJust (SemVer.parseRange "^2.0.0"))
+  targets2 = Map.singleton "lib"
+    { dependencies: Map.singleton "ab" (unsafeFromJust (SemVer.parseRange "^2.0.0"))
     , sources: [ "src/**/*.purs" ]
     }
   license = unsafeFromJust $ hush $ SPDX.parse "MIT"
@@ -70,13 +71,13 @@ abcd = { name, v1, v2 }
   where
   name = unsafeFromJust $ hush $ PackageName.parse "abcd"
   version1 = unsafeFromJust $ SemVer.parseSemVer "1.0.0"
-  targets1 = Object.singleton "lib"
-    { dependencies: Object.singleton "abc" (unsafeFromJust (SemVer.parseRange "^1.0.0"))
+  targets1 = Map.singleton "lib"
+    { dependencies: Map.singleton "abc" (unsafeFromJust (SemVer.parseRange "^1.0.0"))
     , sources: [ "src/**/*.purs" ]
     }
   version2 = unsafeFromJust $ SemVer.parseSemVer "2.0.0"
-  targets2 = Object.singleton "lib"
-    { dependencies: Object.singleton "abc" (unsafeFromJust (SemVer.parseRange "^2.0.0"))
+  targets2 = Map.singleton "lib"
+    { dependencies: Map.singleton "abc" (unsafeFromJust (SemVer.parseRange "^2.0.0"))
     , sources: [ "src/**/*.purs" ]
     }
   license = unsafeFromJust $ hush $ SPDX.parse "MIT"

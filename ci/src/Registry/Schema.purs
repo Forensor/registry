@@ -2,13 +2,13 @@ module Registry.Schema where
 
 import Registry.Prelude
 
-import Data.Argonaut (jsonEmptyObject, (~>), (~>?), (:=), (:=?), (.:), (.:?), (.!=))
-import Data.Argonaut as Json
 import Data.Generic.Rep as Generic
 import Foreign.Object as Object
 import Foreign.SPDX (License)
 import Foreign.SemVer (SemVer, Range)
 import Foreign.SemVer as SemVer
+import Registry.Json (class RegistryJson, (.:), (.?=))
+import Registry.Json as Json
 import Registry.PackageName (PackageName)
 import Registry.PackageName as PackageName
 
@@ -18,24 +18,16 @@ newtype Manifest = Manifest
   , version :: SemVer
   , license :: License
   , repository :: Repo
-  , targets :: Object Target
+  , targets :: Map String Target
   , description :: Maybe String
   }
 
 derive instance Eq Manifest
 derive instance Newtype Manifest _
-derive newtype instance Json.DecodeJson Manifest
-instance Json.EncodeJson Manifest where
-  encodeJson (Manifest { name, version, license, repository, targets, description }) = "description" :=? description
-    ~>? "license" := license
-    ~> "name" := name
-    ~> "repository" := repository
-    ~> "targets" := targets
-    ~> "version" := version
-    ~> jsonEmptyObject
+derive newtype instance RegistryJson Manifest
 
 type Target =
-  { dependencies :: Object Range
+  { dependencies :: Map String Range
   , sources :: Array String
   }
 
@@ -63,31 +55,26 @@ instance showRepo :: Show Repo where
   show = genericShow
 
 -- | We encode it this way so that json-to-dhall can read it
-instance repoEncodeJson :: Json.EncodeJson Repo where
-  encodeJson = case _ of
-    Git { subdir, url } ->
-      "url" := url
-        ~> "subdir" :=? subdir
-        ~>? jsonEmptyObject
+instance RegistryJson Repo where
+  encode = case _ of
+    Git { url, subdir } ->
+      Json.encode { url, subdir }
     GitHub { repo, owner, subdir } ->
-      "githubRepo" := repo
-        ~> "githubOwner" := owner
-        ~> "subdir" :=? subdir
-        ~>? jsonEmptyObject
+      Json.encode { githubRepo: repo, githubOwner: owner, subdir }
 
-instance repoDecodeJson :: Json.DecodeJson Repo where
-  decodeJson json = do
-    obj <- Json.decodeJson json
-    subdir <- obj .:? "subdir" .!= mempty
+  decode json = do
+    obj <- Json.decode json
+    subdir <- obj .?= "subdir"
+
     let
       parseGitHub = do
         owner <- obj .: "githubOwner"
         repo <- obj .: "githubRepo"
         pure $ GitHub { owner, repo, subdir }
-    let
       parseGit = do
         url <- obj .: "url"
         pure $ Git { url, subdir }
+
     parseGitHub <|> parseGit
 
 -- | PureScript encoding of ../v1/Operation.dhall
@@ -98,9 +85,7 @@ data Operation
 
 derive instance eqOperation :: Eq Operation
 
-derive instance genericOperation :: Generic.Generic Operation _
-
-instance showOperation :: Show Operation where
+instance Show Operation where
   show = case _ of
     Addition inner -> "Addition (" <> show (showWithPackage inner) <> ")"
     Update inner -> "Update (" <> show (showWithPackage inner) <> ")"
@@ -110,27 +95,34 @@ instance showOperation :: Show Operation where
     showWithPackage inner =
       inner { packageName = "PackageName (" <> PackageName.print inner.packageName <> ")" }
 
-instance operationDecodeJson :: Json.DecodeJson Operation where
-  decodeJson json = do
-    o <- Json.decodeJson json
-    packageName <- o .: "packageName"
+instance RegistryJson Operation where
+  encode = case _ of
+    Addition additionData -> Json.encode additionData
+    Update updateData -> Json.encode updateData
+    Unpublish unpublishData -> Json.encode unpublishData
+
+  decode json = do
+    obj <- Json.decode json
+    packageName <- obj .: "packageName"
+
     let
       parseAddition = do
-        addToPackageSet <- o .: "addToPackageSet"
-        fromBower <- o .: "fromBower"
-        newPackageLocation <- o .: "newPackageLocation"
-        newRef <- o .: "newRef"
+        addToPackageSet <- obj .: "addToPackageSet"
+        fromBower <- obj .: "fromBower"
+        newPackageLocation <- obj .: "newPackageLocation"
+        newRef <- obj .: "newRef"
         pure $ Addition { newRef, packageName, addToPackageSet, fromBower, newPackageLocation }
-    let
+
       parseUpdate = do
-        fromBower <- o .: "fromBower"
-        updateRef <- o .: "updateRef"
+        fromBower <- obj .: "fromBower"
+        updateRef <- obj .: "updateRef"
         pure $ Update { packageName, fromBower, updateRef }
-    let
+
       parseUnpublish = do
-        unpublishVersion <- o .: "unpublishVersion"
-        unpublishReason <- o .: "unpublishReason"
+        unpublishVersion <- obj .: "unpublishVersion"
+        unpublishReason <- obj .: "unpublishReason"
         pure $ Unpublish { packageName, unpublishVersion, unpublishReason }
+
     parseAddition <|> parseUpdate <|> parseUnpublish
 
 type AdditionData =

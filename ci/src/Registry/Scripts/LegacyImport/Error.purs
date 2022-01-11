@@ -43,6 +43,7 @@ derive instance Newtype RawPackageName _
 derive newtype instance Eq RawPackageName
 derive newtype instance Ord RawPackageName
 derive newtype instance RegistryJson RawPackageName
+derive newtype instance Show RawPackageName
 
 -- | An unprocessed version, taken from a GitHub tag
 newtype RawVersion = RawVersion String
@@ -51,6 +52,7 @@ derive instance Newtype RawVersion _
 derive newtype instance Eq RawVersion
 derive newtype instance Ord RawVersion
 derive newtype instance RegistryJson RawVersion
+derive newtype instance Show RawVersion
 
 -- | An error representing why a package version cannot be imported from the
 -- | Bower registry.

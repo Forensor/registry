@@ -7,23 +7,22 @@ import Affjax.ResponseFormat as ResponseFormat
 import Affjax.StatusCode (StatusCode(..))
 import Control.Monad.Except as Except
 import Control.Parallel (parallel, sequential)
-import Data.Argonaut as Json
 import Data.Array as Array
 import Data.Array.NonEmpty as NEA
 import Data.Interpolate (i)
 import Data.Lens as Lens
+import Data.Map as Map
 import Data.String as String
 import Data.String.NonEmpty as NES
 import Foreign.Dhall as Dhall
 import Foreign.GitHub as GitHub
-import Foreign.Jsonic as Jsonic
 import Foreign.Licensee as Licensee
-import Foreign.Object as Object
+import Foreign.SPDX as SPDX
 import Foreign.SemVer (SemVer)
 import Foreign.SemVer as SemVer
-import Foreign.SPDX as SPDX
 import Foreign.Tmp as Tmp
 import Node.FS.Aff as FS
+import Registry.Json as Json
 import Registry.PackageName (PackageName)
 import Registry.PackageName as PackageName
 import Registry.Schema (Repo, Manifest(..))
@@ -33,6 +32,7 @@ import Registry.Scripts.LegacyImport.ManifestFields (ManifestFields)
 import Registry.Scripts.LegacyImport.Process as Process
 import Registry.Scripts.LegacyImport.SpagoJson (SpagoJson)
 import Registry.Scripts.LegacyImport.SpagoJson as SpagoJson
+import Safe.Coerce (coerce)
 
 -- | Attempt to construct the basic fields necessary for a manifest file by reading
 -- | the package version's bower.json, spago.dhall, package.json, and LICENSE
@@ -75,12 +75,11 @@ constructManifestFields package version address = do
     -- and otherwise fall back to the Spago file.
     bowerManifest <- Except.runExceptT do
       result <- Except.except files.bowerJson
-      case Jsonic.parseJson result >>= Json.decodeJson of
+      case Json.parseJson result of
         Left err -> do
-          let printed = Json.printJsonDecodeError err
-          log $ "Could not decode returned bower.json. " <> printed
+          log $ "Could not decode returned bower.json. " <> err
           log result
-          throwError $ ResourceError { resource: Right BowerJson, error: DecodeError printed }
+          throwError $ ResourceError { resource: Right BowerJson, error: DecodeError err }
         Right bowerfile ->
           pure $ Bowerfile.toManifestFields bowerfile
 
@@ -152,7 +151,7 @@ constructManifestFields package version address = do
 
       Except.mapExceptT (map (lmap mkError))
         $ Except.ExceptT
-        $ map (_ >>= (Json.decodeJson >>> lmap Json.printJsonDecodeError)) runDhallJson
+        $ map (_ >>= Json.decode) runDhallJson
 
     pure spagoJson
 
@@ -244,7 +243,7 @@ toManifest package repository version manifest = do
           Right name -> Right (Tuple name versionRange)
 
         normalizeDeps deps = do
-          let { fail, success } = partitionEithers $ parsePairs $ filterNames deps
+          let { fail, success } = partitionEithers $ parsePairs $ filterNames $ coerce (deps :: Array _)
           case NEA.fromArray fail of
             Nothing -> pure success
             Just err -> mkError $ InvalidDependencyNames err
@@ -254,8 +253,8 @@ toManifest package repository version manifest = do
             Nothing -> Left { dependency: packageName, failedBounds: versionStr }
             Just range -> Right $ Tuple (PackageName.print packageName) range
 
-      normalizedDeps <- normalizeDeps $ Object.toUnfoldable manifest.dependencies
-      normalizedDevDeps <- normalizeDeps $ Object.toUnfoldable manifest.devDependencies
+      normalizedDeps <- normalizeDeps $ Map.toUnfoldable manifest.dependencies
+      normalizedDevDeps <- normalizeDeps $ Map.toUnfoldable manifest.devDependencies
 
       let
         readDeps = map checkDepPair >>> partitionEithers >>> \{ fail, success } ->
@@ -272,15 +271,15 @@ toManifest package repository version manifest = do
         Left e1, Left e2 -> Left (e1 <> e2)
         Left e, Right _ -> Left e
         Right _, Left e -> Left e
-        Right deps, Right devDeps -> Right $ Object.fromFoldable $ Array.catMaybes
+        Right deps, Right devDeps -> Right $ Map.fromFoldable $ Array.catMaybes
           [ Just $ Tuple "lib"
               { sources: [ "src/**/*.purs" ]
-              , dependencies: Object.fromFoldable deps
+              , dependencies: Map.fromFoldable deps
               }
           , if (Array.null devDeps) then Nothing
             else Just $ Tuple "test"
               { sources: [ "src/**/*.purs", "test/**/*.purs" ]
-              , dependencies: Object.fromFoldable (deps <> devDeps)
+              , dependencies: Map.fromFoldable (deps <> devDeps)
               }
           ]
 

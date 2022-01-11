@@ -5,63 +5,52 @@ module Registry.Scripts.LegacyImport.SpagoJson
 
 import Registry.Prelude
 
-import Data.Argonaut ((.:?))
-import Data.Argonaut as Json
 import Data.Array as Array
 import Data.Array.NonEmpty as NEA
 import Data.Map as Map
 import Data.String.NonEmpty (NonEmptyString)
-import Data.String.NonEmpty as NES
-import Foreign.Object as Object
-import Registry.Scripts.LegacyImport.Error (RawPackageName(..), RawVersion(..))
+import Registry.Json (class RegistryJson, (.:?), (.?=))
+import Registry.Json as Json
+import Registry.Scripts.LegacyImport.Error (RawPackageName, RawVersion)
 import Registry.Scripts.LegacyImport.ManifestFields (ManifestFields)
 
 toManifestFields :: SpagoJson -> ManifestFields
-toManifestFields spago@(SpagoJson { license }) =
+toManifestFields (SpagoJson { license, dependencies, packages }) =
   { license: map NEA.singleton license
-  , dependencies: packageDependencies spago
-  , devDependencies: Object.empty
+  , dependencies: packageDependencies
+  , devDependencies: Map.empty
   , description: Nothing
   }
+  where
+  packageDependencies :: Map RawPackageName RawVersion
+  packageDependencies = do
+    let
+      foldFn m name = fromMaybe m do
+        { version } <- Map.lookup name packages
+        pure $ Map.insert name version m
 
-packageDependencies :: SpagoJson -> Object String
-packageDependencies (SpagoJson { dependencies, packages }) = do
-  let
-    foldFn m name = fromMaybe m do
-      version <- Map.lookup name packages
-      pure $ Object.insert (un RawPackageName name) (un RawVersion version) m
-
-  Array.foldl foldFn Object.empty dependencies
+    Array.foldl foldFn Map.empty dependencies
 
 -- | The output of calling `dhall-to-json` on a `spago.dhall` file
 newtype SpagoJson = SpagoJson
   { license :: Maybe NonEmptyString
   , dependencies :: Array RawPackageName
-  , packages :: Map RawPackageName RawVersion
+  -- The packages available in the package set
+  , packages :: Map RawPackageName SpagoPackage
   }
 
 derive newtype instance Eq SpagoJson
 
-instance Json.EncodeJson SpagoJson where
-  encodeJson (SpagoJson spago) = do
-    let
-      packagesMap = map { version: _ } spago.packages
-      packagesObject = objectFromMap (un RawPackageName) packagesMap
+type SpagoPackage =
+  { version :: RawVersion
+  }
 
-    Json.encodeJson
-      { license: spago.license
-      , dependencies: spago.dependencies
-      , packages: packagesObject
-      }
+instance RegistryJson SpagoJson where
+  encode (SpagoJson spago) = Json.encode spago
 
-instance Json.DecodeJson SpagoJson where
-  decodeJson json = do
-    obj <- Json.decodeJson json
-    license' <- obj .:? "license"
-    dependencies <- fromMaybe mempty <$> obj .:? "dependencies"
-    packageObj :: Object { version :: RawVersion } <- fromMaybe Object.empty <$> obj .:? "packages"
-    let
-      packagesMap = objectToMap (Just <<< RawPackageName) packageObj
-      packages = map _.version packagesMap
-      license = NES.fromString =<< license'
-    pure $ SpagoJson { license, dependencies, packages }
+  decode json = do
+    object <- Json.decode json
+    license <- object .:? "license"
+    dependencies <- object .?= "dependencies"
+    packages <- object .:? "packages"
+    pure $ SpagoJson { license, dependencies, packages: fromMaybe Map.empty packages }

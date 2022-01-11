@@ -15,7 +15,6 @@ import Data.List as List
 import Data.Map as Map
 import Data.Monoid (guard)
 import Data.Set as Set
-import Foreign.Object as Object
 import Foreign.SemVer (Range, SemVer)
 import Registry.Index (RegistryIndex)
 import Registry.PackageName (PackageName)
@@ -60,7 +59,7 @@ checkRegistryIndex original = do
         dependencies = do
           -- All valid manifests have a `lib` target, so this unsafe path is
           -- unreachable.
-          Tuple p' _ <- Object.toUnfoldable $ unsafeGetLibDependencies manifest
+          Tuple p' _ <- Map.toUnfoldable $ unsafeGetLibDependencies manifest
           maybe [] Array.singleton $ hush $ PackageName.parse p'
 
       [ { package: { package, version }, dependencies } ]
@@ -153,10 +152,10 @@ toPackageGraph index =
   resolveDependencies manifest = do
     let
       deps =
-        (List.fromFoldable :: Array _ -> _)
+        List.fromFoldable
           $ bindFlipped resolveDependency
           $ map (lmap unsafeParsePackageName)
-          $ Object.toUnfoldable
+          $ Map.toUnfoldable
           $ unsafeGetLibDependencies manifest
 
     Tuple manifest deps
@@ -171,9 +170,9 @@ toPackageGraph index =
   unsafeParsePackageName = fromRight' (\_ -> unsafeCrashWith "PackageName must parse") <<< PackageName.parse
 
 -- | For internal use only
-unsafeGetLibDependencies :: Manifest -> Object Range
+unsafeGetLibDependencies :: Manifest -> Map String Range
 unsafeGetLibDependencies (Manifest manifest) =
   ( fromJust'
       (\_ -> unsafeCrashWith "Manifest has no 'lib' target in 'toPackageGraph'")
-      (Object.lookup "lib" manifest.targets)
+      (Map.lookup "lib" manifest.targets)
   ).dependencies

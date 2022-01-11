@@ -15,6 +15,7 @@ import Data.TraversableWithIndex (class TraversableWithIndex)
 import Effect.AVar as Effect.AVar
 import Effect.Aff.AVar as AVar
 import Effect.Now (nowDateTime) as Time
+import Foreign.GitHub (PackageURL)
 import Foreign.GitHub as GitHub
 import Foreign.SemVer (SemVer)
 import Node.FS.Aff as FS

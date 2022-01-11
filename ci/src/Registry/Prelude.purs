@@ -3,7 +3,6 @@ module Registry.Prelude
   , module Extra
   , module Either
   , module Maybe
-  , PackageURL(..)
   , partitionEithers
   , stripPureScriptPrefix
   , newlines
@@ -93,12 +92,6 @@ stripPureScriptPrefix pkg =
 -- | ```
 newlines :: Int -> String
 newlines n = Array.fold $ Array.replicate n "\n"
-
-newtype PackageURL = PackageURL String
-
-derive instance Extra.Newtype PackageURL _
-derive newtype instance Eq PackageURL
-derive newtype instance Ord PackageURL
 
 fromJust' :: forall a. (Unit -> a) -> Maybe.Maybe a -> a
 fromJust' _ (Maybe.Just a) = a
