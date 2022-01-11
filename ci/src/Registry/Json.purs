@@ -17,6 +17,13 @@ module Registry.Json
   , encode
   , decode
   , decodeWithParser
+  -- Required for instances, but not intended for user code
+  , class EncodeRecord
+  , encodeRecord
+  , class DecodeRecord
+  , decodeRecord
+  , class DecodeRecordField
+  , decodeRecordField
   ) where
 
 import Registry.Prelude
@@ -24,14 +31,23 @@ import Registry.Prelude
 import Data.Argonaut.Core (Json) as Exports
 import Data.Argonaut.Core as Core
 import Data.Array as Array
+import Data.Array.NonEmpty as NEA
 import Data.Int as Int
 import Data.Map as Map
 import Data.Newtype (unwrap, wrap)
+import Data.String.NonEmpty (NonEmptyString)
+import Data.String.NonEmpty as NES
+import Data.Symbol (class IsSymbol)
+import Data.Symbol as Symbol
 import Foreign.Jsonic as Jsonic
 import Foreign.Object as Object
 import Node.FS.Aff as FS
-import Text.Parsing.StringParser (Parser(..))
+import Prim.Row as Row
+import Prim.RowList as RL
+import Record as Record
+import Text.Parsing.StringParser (Parser)
 import Text.Parsing.StringParser as SP
+import Type.Proxy (Proxy(..))
 
 -- | Print a type as a formatted JSON string
 printJson :: forall a. RegistryJson a => a -> String
@@ -84,6 +100,14 @@ instance RegistryJson a => RegistryJson (Object a) where
   encode = Core.fromObject <<< map encode
   decode = Core.caseJsonObject (Left "Expected Object") (traverse decode)
 
+instance RegistryJson a => RegistryJson (Maybe a) where
+  encode = case _ of
+    Nothing -> Core.jsonNull
+    Just value -> encode value
+  decode json
+    | json == Core.jsonNull = Right Nothing
+    | otherwise = map Just $ decode json
+
 instance (RegistryJson e, RegistryJson a) => RegistryJson (Either e a) where
   encode = either encode encode
   decode json =
@@ -99,6 +123,14 @@ instance (RegistryJson e, RegistryJson a) => RegistryJson (Either e a) where
           , ")"
           ]
 
+instance RegistryJson NonEmptyString where
+  encode = encode <<< NES.toString
+  decode = decode >=> NES.fromString >>> note "Expected NonEmptyString"
+
+instance RegistryJson a => RegistryJson (NonEmptyArray a) where
+  encode = encode <<< NEA.toArray
+  decode = decode >=> NEA.fromArray >>> note "Expected NonEmptyArray"
+
 instance (Ord k, Newtype k String, RegistryJson v) => RegistryJson (Map k v) where
   encode = encode <<< Object.fromFoldable <<< map (lmap unwrap) <<< (Map.toUnfoldableUnordered :: _ -> Array _)
   decode = map (Map.fromFoldable <<< map (lmap wrap) <<< (Object.toUnfoldable :: _ -> Array _)) <=< decode
@@ -106,3 +138,59 @@ instance (Ord k, Newtype k String, RegistryJson v) => RegistryJson (Map k v) whe
 else instance RegistryJson a => RegistryJson (Map String a) where
   encode = encode <<< Object.fromFoldable <<< (Map.toUnfoldableUnordered :: _ -> Array _)
   decode = map (Map.fromFoldable <<< (Object.toUnfoldable :: _ -> Array _)) <=< decode
+
+instance (EncodeRecord row list, DecodeRecord row list, RL.RowToList row list) => RegistryJson (Record row) where
+  encode record = Core.fromObject $ encodeRecord record (Proxy :: Proxy list)
+  decode json = case Core.toObject json of
+    Nothing -> Left "Expected Object"
+    Just object -> decodeRecord object (Proxy :: Proxy list)
+
+---------
+
+class EncodeRecord (row :: Row Type) (list :: RL.RowList Type) where
+  encodeRecord :: Record row -> Proxy list -> Object Core.Json
+
+instance EncodeRecord row RL.Nil where
+  encodeRecord _ _ = Object.empty
+
+instance (RegistryJson value, EncodeRecord row tail, IsSymbol field, Row.Cons field value tail' row) => EncodeRecord row (RL.Cons field value tail) where
+  encodeRecord row _ = do
+    let
+      _field = Proxy :: Proxy field
+      fieldName = Symbol.reflectSymbol _field
+      fieldValue = encode $ Record.get _field row
+      object = encodeRecord row (Proxy :: Proxy tail)
+
+    Object.insert fieldName fieldValue object
+
+class DecodeRecord (row :: Row Type) (list :: RL.RowList Type) | list -> row where
+  decodeRecord :: Object Core.Json -> Proxy list -> Either String (Record row)
+
+instance DecodeRecord () RL.Nil where
+  decodeRecord _ _ = Right {}
+
+instance (DecodeRecordField value, DecodeRecord rowTail tail, IsSymbol field, Row.Cons field value rowTail row, Row.Lacks field rowTail) => DecodeRecord row (RL.Cons field value tail) where
+  decodeRecord object _ = do
+    let
+      _field = Proxy :: Proxy field
+      fieldName = Symbol.reflectSymbol _field
+
+    case decodeRecordField (Object.lookup fieldName object) of
+      Nothing ->
+        Left $ "Expected field: '" <> fieldName <> "'"
+      Just fieldValue -> do
+        val <- fieldValue
+        rest <- decodeRecord object (Proxy :: Proxy tail)
+        Right $ Record.insert _field val rest
+
+class DecodeRecordField a where
+  decodeRecordField :: Maybe Core.Json -> Maybe (Either String a)
+
+instance RegistryJson a => DecodeRecordField (Maybe a) where
+  decodeRecordField = Just <<< case _ of
+    Nothing -> Right Nothing
+    Just json | json == Core.jsonNull -> Right Nothing
+    Just json -> decode json
+
+else instance RegistryJson a => DecodeRecordField a where
+  decodeRecordField = map decode

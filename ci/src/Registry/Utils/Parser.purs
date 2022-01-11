@@ -6,6 +6,7 @@ import Data.Array as Array
 import Data.Array.NonEmpty as NEA
 import Data.String.CodeUnits as CU
 import Text.Parsing.StringParser (Parser)
+import Text.Parsing.StringParser as SP
 import Text.Parsing.StringParser.CodePoints as SPCP
 import Text.Parsing.StringParser.Combinators as SPC
 
@@ -41,3 +42,6 @@ anyString :: Parser String
 anyString = do
   captured <- SPC.many SPCP.anyChar
   pure $ CU.fromCharArray $ Array.fromFoldable captured
+
+tryChoice :: forall a. Array (Parser a) -> Parser a
+tryChoice = SPC.choice <<< map SP.try

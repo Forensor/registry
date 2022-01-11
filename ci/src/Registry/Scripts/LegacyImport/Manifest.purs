@@ -28,7 +28,7 @@ import Registry.PackageName (PackageName)
 import Registry.PackageName as PackageName
 import Registry.Schema (Repo, Manifest(..))
 import Registry.Scripts.LegacyImport.Bowerfile as Bowerfile
-import Registry.Scripts.LegacyImport.Error (FileResource(..), ImportError(..), ManifestError(..), RawPackageName(..), RawVersion(..), RemoteResource(..), RequestError(..), fileResourcePath)
+import Registry.Scripts.LegacyImport.Error (FileResource(..), ImportError(..), ManifestError(..), RawPackageName(..), RawVersion(..), RequestError(..), fileResourcePath)
 import Registry.Scripts.LegacyImport.ManifestFields (ManifestFields)
 import Registry.Scripts.LegacyImport.Process as Process
 import Registry.Scripts.LegacyImport.SpagoJson (SpagoJson)
@@ -80,7 +80,7 @@ constructManifestFields package version address = do
           let printed = Json.printJsonDecodeError err
           log $ "Could not decode returned bower.json. " <> printed
           log result
-          throwError $ ResourceError { resource: FileResource BowerJson, error: DecodeError printed }
+          throwError $ ResourceError { resource: Right BowerJson, error: DecodeError printed }
         Right bowerfile ->
           pure $ Bowerfile.toManifestFields bowerfile
 
@@ -147,7 +147,7 @@ constructManifestFields package version address = do
 
     spagoJson <- do
       let
-        mkError = ResourceError <<< { resource: FileResource SpagoDhall, error: _ } <<< DecodeError
+        mkError = ResourceError <<< { resource: Right SpagoDhall, error: _ } <<< DecodeError
         runDhallJson = Dhall.dhallToJson { dhall: files.spagoDhall, cwd: Just tmp }
 
       Except.mapExceptT (map (lmap mkError))
@@ -168,7 +168,7 @@ constructManifestFields package version address = do
       url = i "https://raw.githubusercontent.com/" address.owner "/" address.repo "/" tag "/" filePath
       fileCacheName = String.replace (String.Pattern ".") (String.Replacement "-") filePath
       cacheKey = i fileCacheName "__" name "__" tag
-      mkError = ResourceError <<< { resource: FileResource resource, error: _ }
+      mkError = ResourceError <<< { resource: Right resource, error: _ }
 
     Process.withCache serialize cacheKey Nothing do
       liftAff (Http.get ResponseFormat.string url) >>= case _ of
@@ -213,20 +213,22 @@ toManifest package repository version manifest = do
           other -> other
 
       case manifest.license of
-        Nothing -> mkError MissingLicense
+        Nothing ->
+          mkError MissingLicense
         Just licenses -> do
           let
-            parsed =
+            parsedLicenses =
               map (SPDX.parse <<< rewrite)
                 $ Array.filter (_ /= "LICENSE")
                 $ map NES.toString
                 $ NEA.toArray licenses
-            { fail, success } = partitionEithers parsed
+
+            { fail, success } = partitionEithers parsedLicenses
 
           case fail, success of
             [], [] -> mkError MissingLicense
             [], _ -> Right $ SPDX.joinWith SPDX.Or success
-            _, _ -> mkError $ BadLicense fail
+            _, _ -> mkError $ BadLicenses $ map _.identifier fail
 
     eitherTargets = do
       let

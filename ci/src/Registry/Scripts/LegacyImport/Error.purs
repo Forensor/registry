@@ -14,8 +14,7 @@ import Registry.Json (class RegistryJson)
 import Registry.Json as Json
 import Registry.PackageName (PackageName)
 import Registry.PackageName as PackageName
-import Registry.Scripts.LegacyImport.Parser as RP
-import Text.Parsing.StringParser (Parser)
+import Registry.Utils.Parser as RP
 import Text.Parsing.StringParser as SP
 import Text.Parsing.StringParser.CodePoints as SPCP
 import Text.Parsing.StringParser.Combinators as SPC
@@ -98,21 +97,15 @@ instance RegistryJson RequestError where
     DecodeError error -> "DecodeError (" <> error <> ")"
   decode = Json.decodeWithParser do
     let
-      badRequest =
-        RP.nullaryCtor "BadRequest" BadRequest
-
+      badRequest = RP.nullaryCtor "BadRequest" BadRequest
       badStatus = RP.singleCtor "BadStatus" BadStatus do
         statusString <- RP.parens RP.anyString
         case Int.fromStringAs Int.decimal statusString of
           Nothing -> SP.fail $ "Expected Int status code, received: " <> statusString
           Just value -> pure value
+      decodeError = RP.singleCtor "DecodeError" DecodeError (RP.parens RP.anyString)
 
-      decodeError =
-        RP.singleCtor "DecodeError" DecodeError (RP.parens RP.anyString)
-
-    SP.try badRequest
-      <|> SP.try badStatus
-      <|> SP.try decodeError
+    RP.tryChoice [ badRequest, badStatus, decodeError ]
 
 -- | An error representing why a manifest could not be produced for this package
 data ManifestError
@@ -127,10 +120,8 @@ derive instance Eq ManifestError
 
 instance RegistryJson ManifestError where
   encode = Json.encode <<< case _ of
-    MissingName ->
-      "MissingName"
-    MissingLicense ->
-      "MissingLicense"
+    MissingName -> "MissingName"
+    MissingLicense -> "MissingLicense"
     BadLicenses arr ->
       "BadLicenses [ " <> String.joinWith ", " arr <> " ]"
     BadVersion str ->
@@ -143,24 +134,16 @@ instance RegistryJson ManifestError where
 
   decode = Json.decodeWithParser do
     let
-      missingName =
-        RP.nullaryCtor "MissingName" MissingName
-
-      missingLicense =
-        RP.nullaryCtor "MissingLicense" MissingLicense
-
-      badLicenses =
-        RP.singleCtor "BadLicenses" BadLicenses (RP.array RP.anyString)
-
-      badVersion =
-        RP.singleCtor "BadVersion" BadVersion (RP.parens RP.anyString)
+      missingName = RP.nullaryCtor "MissingName" MissingName
+      missingLicense = RP.nullaryCtor "MissingLicense" MissingLicense
+      badLicenses = RP.singleCtor "BadLicenses" BadLicenses (RP.array RP.anyString)
+      badVersion = RP.singleCtor "BadVersion" BadVersion (RP.parens RP.anyString)
 
       invalidDependencyNames =
         RP.singleCtor "InvalidDependencyNames" InvalidDependencyNames (RP.array1 RP.anyString)
 
       badDependencyVersions = RP.singleCtor "BadDependencyVersions" BadDependencyVersions do
         let
-          parseDependency :: Parser { dependency :: PackageName, failedBounds :: String }
           parseDependency = do
             dependency <- do
               rawPackage <- SPC.many1Till SPCP.anyChar (SPCP.char '@')
@@ -177,12 +160,14 @@ instance RegistryJson ManifestError where
 
         RP.array1 parseDependency
 
-    SP.try missingName
-      <|> SP.try missingLicense
-      <|> SP.try badLicenses
-      <|> SP.try badVersion
-      <|> SP.try invalidDependencyNames
-      <|> SP.try badDependencyVersions
+    RP.tryChoice
+      [ missingName
+      , missingLicense
+      , badLicenses
+      , badVersion
+      , invalidDependencyNames
+      , badDependencyVersions
+      ]
 
 newtype ManifestErrorKey = ManifestErrorKey String
 
@@ -208,8 +193,7 @@ data APIResource = GitHubReleases
 derive instance Eq APIResource
 
 instance RegistryJson APIResource where
-  encode = Json.encode <<< case _ of
-    GitHubReleases -> "GitHubReleases"
+  encode = Json.encode <<< case _ of GitHubReleases -> "GitHubReleases"
   decode = Json.decode >=> case _ of
     "GitHubReleases" -> Right GitHubReleases
     str -> Left $ "Invalid APIResource: (" <> str <> ")"
