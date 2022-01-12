@@ -2,6 +2,7 @@ module Registry.Scripts.LegacyImport.Error where
 
 import Registry.Prelude
 
+import Control.Monad.Reader (Reader, ask, runReader)
 import Data.Array as Array
 import Data.Array.NonEmpty as NEA
 import Data.Int as Int
@@ -10,7 +11,7 @@ import Data.List.NonEmpty as NEL
 import Data.String as String
 import Data.String.CodeUnits as CU
 import Data.String.CodeUnits as SCU
-import Registry.Json (class RegistryJson)
+import Registry.Json (class RegistryJson, Json, (.:))
 import Registry.Json as Json
 import Registry.PackageName (PackageName)
 import Registry.PackageName as PackageName
@@ -68,8 +69,44 @@ data ImportError
 derive instance Eq ImportError
 
 instance RegistryJson ImportError where
-  encode = unsafeCrashWith "blah"
-  decode = unsafeCrashWith "blah"
+  encode = case _ of
+    InvalidGitHubRepo value ->
+      Json.encode { tag: "InvalidGitHubRepo", value }
+    ResourceError value ->
+      Json.encode { tag: "ResourceError", value }
+    MalformedPackageName value ->
+      Json.encode { tag: "MalformedPackageName", value }
+    NoDependencyFiles ->
+      Json.encode { tag: "NoDependencyFiles" }
+    NonRegistryDependencies value ->
+      Json.encode { tag: "NonRegistryDependencies", value }
+    NoManifests ->
+      Json.encode { tag: "NoManifests" }
+    ManifestImportError value ->
+      Json.encode { tag: "NoManifests", value }
+
+  decode = Json.decode >=> runReader do
+    tag <- .: "tag"
+    flip runReader obj $ case tag of
+      "InvalidGitHubRepo" ->
+        withValue InvalidGitHubRepo
+      "ResourceError" ->
+        withValue ResourceError
+      "MalformedPackageName" ->
+        withValue MalformedPackageName
+      "NoDependencyFiles" ->
+        pure $ Right NoDependencyFiles
+      "NonRegistryDependencies" ->
+        withValue NonRegistryDependencies
+      "NoManifests" ->
+        pure $ Right NoManifests
+      "ManifestImportError" ->
+        withValue ManifestImportError
+      other ->
+        pure $ Left $ "Unexpected ImportError: '" <> other <> "'"
+    where
+    withValue :: forall a b. RegistryJson a => (a -> b) -> Reader (Object Json) (Either String b)
+    withValue ctor = pure <<< map ctor <<< (_ .: "value") =<< ask
 
 manifestErrorKey :: ImportErrorKey
 manifestErrorKey = ImportErrorKey "manifestError"

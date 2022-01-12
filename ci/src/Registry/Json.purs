@@ -14,15 +14,12 @@ module Registry.Json
   , parseJson
   , writeJsonFile
   , readJsonFile
-  , getField
-  , (.:)
-  , getField'
-  , (.:?)
-  , getFieldDefault
-  , (.?=)
+  , field
+  , optionalField
   , encode
   , decode
   , decodeWithParser
+  , decodeObject
   -- Required for instances, but not intended for user code
   , class EncodeRecord
   , encodeRecord
@@ -34,6 +31,9 @@ module Registry.Json
   , decodeRecordField
   ) where
 
+import Registry.Prelude
+
+import Control.Monad.Reader (ReaderT, ask, runReaderT)
 import Data.Argonaut.Core (Json) as Exports
 import Data.Argonaut.Core as Core
 import Data.Array as Array
@@ -51,7 +51,6 @@ import Node.FS.Aff as FS
 import Prim.Row as Row
 import Prim.RowList as RL
 import Record as Record
-import Registry.Prelude (class Monoid, class Newtype, class Ord, Aff, Either(..), Encoding(..), FilePath, Map, Maybe(..), NonEmptyArray, Object, Unit, bind, either, fromMaybe, identity, lmap, map, maybe, mempty, note, otherwise, pure, traverse, ($), (<<<), (<=<), (<>), (>=>), (>>>))
 import Text.Parsing.StringParser (Parser)
 import Text.Parsing.StringParser as SP
 import Type.Proxy (Proxy(..))
@@ -79,25 +78,25 @@ decodeWithParser parser json = do
   parsed <- lmap SP.printParserError $ SP.runParser parser string
   pure parsed
 
--- | Look up and decode a field in an object, failing if it is not there.
-getField :: forall a. RegistryJson a => Object Core.Json -> String -> Either String a
-getField object key = maybe (Left $ "Expected value at key: '" <> key <> "'") decode (Object.lookup key object)
+decodeObject :: forall a. Core.Json -> ObjectReader a -> Either String a
+decodeObject json reader = decode json >>= runReaderT reader
 
-infix 7 getField as .:
+type ObjectReader a = ReaderT (Object Core.Json) (Either String) a
+
+-- | Look up and decode a field in an object, failing if it is not there.
+field :: forall a. RegistryJson a => String -> ObjectReader a
+field key = do
+  object <- ask
+  let onNothing = Left $ "Expected value at key: '" <> key <> "'"
+  lift $ maybe onNothing decode $ Object.lookup key object
 
 -- | Look up and decode a field in an object, returning `Maybe` if it is not there.
-getField' :: forall a. RegistryJson a => Object Core.Json -> String -> Either String (Maybe a)
-getField' object key = maybe (pure Nothing) decode' (Object.lookup key object)
+optionalField :: forall a. RegistryJson a => String -> ObjectReader (Maybe a)
+optionalField key = do
+  object <- ask
+  lift $ maybe (pure Nothing) decode' (Object.lookup key object)
   where
   decode' json = if Core.isNull json then pure Nothing else map Just (decode json)
-
-infix 7 getField' as .:?
-
--- | Look up and decode a field in an object, defaulting if it isn't found
-getFieldDefault :: forall a. Monoid a => RegistryJson a => Object Core.Json -> String -> Either String a
-getFieldDefault object = map (fromMaybe mempty) <<< getField' object
-
-infix 7 getFieldDefault as .?=
 
 class RegistryJson a where
   encode :: a -> Core.Json

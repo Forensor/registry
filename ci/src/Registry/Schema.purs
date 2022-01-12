@@ -7,7 +7,7 @@ import Foreign.Object as Object
 import Foreign.SPDX (License)
 import Foreign.SemVer (SemVer, Range)
 import Foreign.SemVer as SemVer
-import Registry.Json (class RegistryJson, (.:), (.?=))
+import Registry.Json (class RegistryJson)
 import Registry.Json as Json
 import Registry.PackageName (PackageName)
 import Registry.PackageName as PackageName
@@ -60,19 +60,19 @@ instance RegistryJson Repo where
     Git { url, subdir } ->
       Json.encode { url, subdir }
     GitHub { repo, owner, subdir } ->
-      Json.encode { githubRepo: repo, githubOwner: owner, subdir }
+      Json.encode { githubOwner: owner, githubRepo: repo, subdir }
 
-  decode json = do
-    obj <- Json.decode json
-    subdir <- obj .?= "subdir"
+  decode json = Json.decodeObject json do
+    subdir <- Json.field "subdir"
 
     let
       parseGitHub = do
-        owner <- obj .: "githubOwner"
-        repo <- obj .: "githubRepo"
+        owner <- Json.field "githubOwner"
+        repo <- Json.field "githubRepo"
         pure $ GitHub { owner, repo, subdir }
+
       parseGit = do
-        url <- obj .: "url"
+        url <- Json.field "url"
         pure $ Git { url, subdir }
 
     parseGitHub <|> parseGit
@@ -101,26 +101,25 @@ instance RegistryJson Operation where
     Update updateData -> Json.encode updateData
     Unpublish unpublishData -> Json.encode unpublishData
 
-  decode json = do
-    obj <- Json.decode json
-    packageName <- obj .: "packageName"
+  decode json = Json.decodeObject json do
+    packageName <- Json.field "packageName"
 
     let
       parseAddition = do
-        addToPackageSet <- obj .: "addToPackageSet"
-        fromBower <- obj .: "fromBower"
-        newPackageLocation <- obj .: "newPackageLocation"
-        newRef <- obj .: "newRef"
+        addToPackageSet <- Json.field "addToPackageSet"
+        fromBower <- Json.field "fromBower"
+        newPackageLocation <- Json.field "newPackageLocation"
+        newRef <- Json.field "newRef"
         pure $ Addition { newRef, packageName, addToPackageSet, fromBower, newPackageLocation }
 
       parseUpdate = do
-        fromBower <- obj .: "fromBower"
-        updateRef <- obj .: "updateRef"
+        fromBower <- Json.field "fromBower"
+        updateRef <- Json.field "updateRef"
         pure $ Update { packageName, fromBower, updateRef }
 
       parseUnpublish = do
-        unpublishVersion <- obj .: "unpublishVersion"
-        unpublishReason <- obj .: "unpublishReason"
+        unpublishVersion <- Json.field "unpublishVersion"
+        unpublishReason <- Json.field "unpublishReason"
         pure $ Unpublish { packageName, unpublishVersion, unpublishReason }
 
     parseAddition <|> parseUpdate <|> parseUnpublish

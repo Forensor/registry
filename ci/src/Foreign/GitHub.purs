@@ -9,7 +9,7 @@ import Data.Newtype (unwrap)
 import Data.String as String
 import Data.String.CodeUnits (fromCharArray)
 import Effect.Uncurried (EffectFn2, EffectFn3, EffectFn4, runEffectFn2, runEffectFn3, runEffectFn4)
-import Registry.Json (class RegistryJson, (.:))
+import Registry.Json (class RegistryJson)
 import Registry.Json as Json
 import Safe.Coerce (coerce)
 import Text.Parsing.StringParser as Parser
@@ -29,15 +29,14 @@ derive instance Newtype Event _
 
 instance RegistryJson Event where
   encode event = Json.encode event
-  decode json = do
-    obj <- Json.decode json
-    issue <- obj .: "issue"
-    issueNumber <- issue .: "number"
+  decode json = Json.decodeObject json do
+    issue <- Json.field "issue"
+    issueNumber <- Json.field "number"
     -- We accept issue creation and issue comment events, but both contain an
     -- 'issue' field. However, only comments contain a 'comment' field. For that
     -- reason we first try to parse the comment and fall back to the issue if
     -- that fails.
-    body <- (_ .: "body") =<< obj .: "comment" <|> pure issue
+    body <- Json.field "body" =<< Json.field "comment" <|> pure issue
     pure $ Event { body, issueNumber }
 
 type Address = { owner :: String, repo :: String }

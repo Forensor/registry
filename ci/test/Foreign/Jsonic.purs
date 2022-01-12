@@ -21,7 +21,7 @@ jsonic = do
 
 parseTest :: String -> Json -> Spec
 parseTest str json = Spec.it str do
-  Json.parseJson str `Assert.shouldContain` Core.stringify json
+  map Core.stringify (Json.parseJson str) `Assert.shouldContain` Core.stringify json
 
 goodJson :: Spec
 goodJson = do
@@ -40,6 +40,6 @@ horrendousJson :: Spec
 horrendousJson = do
   let
     failParse str = Spec.it str do
-      (Json.parseJson str :: Either String String) `Assert.shouldSatisfy` Either.isLeft
+      (Json.parseJson str :: _ String) `Assert.shouldSatisfy` Either.isLeft
 
   failParse """{ "horrendously invalid json" }"""
