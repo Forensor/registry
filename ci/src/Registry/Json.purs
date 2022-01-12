@@ -89,13 +89,13 @@ decodeWithParser parser json = do
   pure parsed
 
 encodeObject :: State (Object Core.Json) Unit -> Core.Json
-encodeObject encoder = encode $ snd $ runState encoder Object.empty
+encodeObject encoder = Core.fromObject $ snd $ runState encoder Object.empty
 
 putField :: forall a. RegistryJson a => String -> a -> State (Object Core.Json) Unit
 putField key value = do
   let encoded = encode value
   unless (Core.isNull encoded) do
-    State.modify_ (Object.insert key (encode value))
+    State.modify_ (Object.insert key encoded)
 
 infix 7 putField as :=
 
@@ -197,7 +197,7 @@ else instance (Ord k, Newtype k String, RegistryJson v) => RegistryJson (Map k v
   decode = map (Map.fromFoldable <<< map (lmap wrap) <<< (Object.toUnfoldable :: _ -> Array _)) <=< decode
 
 instance (EncodeRecord row list, DecodeRecord row list, RL.RowToList row list) => RegistryJson (Record row) where
-  encode record = Core.fromObject $ encodeRecord record (Proxy :: Proxy list)
+  encode record = Core.fromObject $ (Object.fromFoldable :: Array _ -> _) $ Object.toAscUnfoldable $ encodeRecord record (Proxy :: Proxy list)
   decode json = case Core.toObject json of
     Nothing -> Left "Expected Object"
     Just object -> decodeRecord object (Proxy :: Proxy list)
@@ -248,7 +248,9 @@ class EncodeRecordField a where
 instance RegistryJson a => EncodeRecordField (Maybe a) where
   encodeRecordField key = case _ of
     Nothing -> identity
-    Just value -> Object.insert key (encode value)
+    Just value -> do
+      let encoded = encode value
+      if Core.isNull encoded then identity else Object.insert key (encode value)
 
 else instance RegistryJson a => EncodeRecordField a where
   encodeRecordField key value = Object.insert key (encode value)

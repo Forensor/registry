@@ -24,7 +24,18 @@ newtype Manifest = Manifest
 
 derive instance Eq Manifest
 derive instance Newtype Manifest _
-derive newtype instance RegistryJson Manifest
+
+instance RegistryJson Manifest where
+  encode (Manifest fields) = Json.encodeObject do
+    "name" := fields.name
+    "version" := fields.version
+    "license" := fields.license
+    "description" := fields.description
+    "repository" := fields.repository
+    "targets" := fields.targets
+
+  decode =
+    map Manifest <<< Json.decode
 
 type Target =
   { dependencies :: Map String Range
