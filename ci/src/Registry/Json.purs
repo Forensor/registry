@@ -189,7 +189,7 @@ instance RegistryJson a => RegistryJson (NonEmptyArray a) where
   decode = decode >=> NEA.fromArray >>> note "Expected NonEmptyArray"
 
 instance RegistryJson a => RegistryJson (Map String a) where
-  encode = encode <<< Object.fromFoldable <<< (Map.toUnfoldableUnordered :: _ -> Array _)
+  encode = encode <<< Object.fromFoldable <<< (Map.toUnfoldable :: _ -> Array _)
   decode = map (Map.fromFoldable <<< (Object.toUnfoldable :: _ -> Array _)) <=< decode
 
 else instance (Ord k, Newtype k String, RegistryJson v) => RegistryJson (Map k v) where

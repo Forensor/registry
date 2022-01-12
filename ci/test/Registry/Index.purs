@@ -18,7 +18,7 @@ import Registry.Index as Index
 import Registry.PackageGraph as PackageGraph
 import Registry.PackageName (PackageName)
 import Registry.PackageName as PackageName
-import Registry.Schema (Manifest(..))
+import Registry.Schema (Manifest(..), Target(..))
 import Test.Spec as Spec
 import Test.Spec.Assertions as Assert
 import Test.Support.Manifest as Support.Manifest
@@ -118,7 +118,7 @@ isSorted = fst <<< Array.foldl foldFn (Tuple true Set.empty)
   unsafeGetLibDependencies (Manifest manifest) =
     ( fromJust'
         (\_ -> unsafeCrashWith "Manifest has no 'lib' target in 'isSorted'")
-        (Map.lookup "lib" manifest.targets)
+        (un Target <$> Map.lookup "lib" manifest.targets)
     ).dependencies
 
   unsafeParsePackageName :: String -> PackageName

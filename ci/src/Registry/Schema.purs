@@ -37,10 +37,21 @@ instance RegistryJson Manifest where
   decode =
     map Manifest <<< Json.decode
 
-type Target =
+newtype Target = Target
   { dependencies :: Map String Range
   , sources :: Array String
   }
+
+derive instance Newtype Target _
+derive newtype instance Eq Target
+derive newtype instance Show Target
+
+instance RegistryJson Target where
+  encode (Target { dependencies, sources }) = Json.encodeObject do
+    "sources" := sources
+    "dependencies" := dependencies
+
+  decode = map Target <<< Json.decode
 
 type RepoData d =
   { subdir :: Maybe String
