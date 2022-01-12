@@ -14,6 +14,11 @@ module Registry.Json
   , parseJson
   , writeJsonFile
   , readJsonFile
+  , encodeObject
+  , putField
+  , (:=)
+  , decodeObject
+  , readField
   , getField
   , (.:)
   , getField'
@@ -34,6 +39,11 @@ module Registry.Json
   , decodeRecordField
   ) where
 
+import Registry.Prelude
+
+import Control.Monad.Reader (Reader, ask, runReader)
+import Control.Monad.State (State, runState)
+import Control.Monad.State as State
 import Data.Argonaut.Core (Json) as Exports
 import Data.Argonaut.Core as Core
 import Data.Array as Array
@@ -51,7 +61,6 @@ import Node.FS.Aff as FS
 import Prim.Row as Row
 import Prim.RowList as RL
 import Record as Record
-import Registry.Prelude (class Monoid, class Newtype, class Ord, Aff, Either(..), Encoding(..), FilePath, Map, Maybe(..), NonEmptyArray, Object, Unit, bind, either, fromMaybe, identity, lmap, map, maybe, mempty, note, otherwise, pure, traverse, ($), (<<<), (<=<), (<>), (>=>), (>>>))
 import Text.Parsing.StringParser (Parser)
 import Text.Parsing.StringParser as SP
 import Type.Proxy (Proxy(..))
@@ -78,6 +87,23 @@ decodeWithParser parser json = do
   string <- decode json
   parsed <- lmap SP.printParserError $ SP.runParser parser string
   pure parsed
+
+encodeObject :: State (Object Core.Json) Unit -> Core.Json
+encodeObject encoder = encode $ snd $ runState encoder Object.empty
+
+putField :: forall a. RegistryJson a => String -> a -> State (Object Core.Json) Unit
+putField key value = do
+  let encoded = encode value
+  unless (Core.isNull encoded) do
+    State.modify_ (Object.insert key (encode value))
+
+infix 7 putField as :=
+
+decodeObject :: forall a. Object Core.Json -> Reader (Object Core.Json) (Either String a) -> Either String a
+decodeObject = flip runReader
+
+readField :: forall a. RegistryJson a => String -> Reader (Object Core.Json) (Either String a)
+readField key = ask >>= \obj -> pure (obj .: key)
 
 -- | Look up and decode a field in an object, failing if it is not there.
 getField :: forall a. RegistryJson a => Object Core.Json -> String -> Either String a

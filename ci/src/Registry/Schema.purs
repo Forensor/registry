@@ -7,7 +7,7 @@ import Foreign.Object as Object
 import Foreign.SPDX (License)
 import Foreign.SemVer (SemVer, Range)
 import Foreign.SemVer as SemVer
-import Registry.Json (class RegistryJson, (.:), (.?=))
+import Registry.Json (class RegistryJson, (.:), (.?=), (:=))
 import Registry.Json as Json
 import Registry.PackageName (PackageName)
 import Registry.PackageName as PackageName
@@ -56,11 +56,14 @@ instance showRepo :: Show Repo where
 
 -- | We encode it this way so that json-to-dhall can read it
 instance RegistryJson Repo where
-  encode = case _ of
-    Git { url, subdir } ->
-      Json.encode { url, subdir }
-    GitHub { repo, owner, subdir } ->
-      Json.encode { githubRepo: repo, githubOwner: owner, subdir }
+  encode = Json.encodeObject <<< case _ of
+    Git { url, subdir } -> do
+      "url" := url
+      "subdir" := subdir
+    GitHub { repo, owner, subdir } -> do
+      "githubOwner" := owner
+      "githubRepo" := repo
+      "subdir" := subdir
 
   decode json = do
     obj <- Json.decode json

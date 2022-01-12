@@ -2,7 +2,7 @@ module Registry.Scripts.LegacyImport.Error where
 
 import Registry.Prelude
 
-import Control.Monad.Reader (Reader, ask, runReader)
+import Control.Monad.Reader (Reader)
 import Data.Array as Array
 import Data.Array.NonEmpty as NEA
 import Data.Int as Int
@@ -85,9 +85,10 @@ instance RegistryJson ImportError where
     ManifestImportError value ->
       Json.encode { tag: "NoManifests", value }
 
-  decode json = Json.decode json >>= \obj -> do
+  decode json = do
+    obj <- Json.decode json
     tag <- obj .: "tag"
-    flip runReader obj $ case tag of
+    Json.decodeObject obj case tag of
       "InvalidGitHubRepo" ->
         withValue InvalidGitHubRepo
       "ResourceError" ->
@@ -106,7 +107,7 @@ instance RegistryJson ImportError where
         pure $ Left $ "Unexpected ImportError: '" <> other <> "'"
     where
     withValue :: forall a b. RegistryJson a => (a -> b) -> Reader (Object Json) (Either String b)
-    withValue ctor = pure <<< map ctor <<< (_ .: "value") =<< ask
+    withValue ctor = map (map ctor) $ Json.readField "value"
 
 manifestErrorKey :: ImportErrorKey
 manifestErrorKey = ImportErrorKey "manifestError"
