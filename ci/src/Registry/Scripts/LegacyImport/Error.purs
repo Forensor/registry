@@ -85,8 +85,8 @@ instance RegistryJson ImportError where
     ManifestImportError value ->
       Json.encode { tag: "NoManifests", value }
 
-  decode = Json.decode >=> runReader do
-    tag <- .: "tag"
+  decode json = Json.decode json >>= \obj -> do
+    tag <- obj .: "tag"
     flip runReader obj $ case tag of
       "InvalidGitHubRepo" ->
         withValue InvalidGitHubRepo
